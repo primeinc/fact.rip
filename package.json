@@ -2,7 +2,7 @@
   "name": "fact-rip",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://primeinc.github.io/fact.rip",
+  "homepage": "https://fact.rip",
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -23,7 +23,8 @@
     "lint-staged": "^15.5.2",
     "postcss": "^8.4.31",
     "prettier": "^3.5.3",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "rimraf": "^6.0.1"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -32,6 +33,9 @@
     "eject": "react-scripts eject",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build",
+    "deploy:full": "git add . && git commit -m \"Update site content\" && npm run deploy && git push",
+    "clean": "rimraf build",
+    "rebuild": "npm run clean && npm run build",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
