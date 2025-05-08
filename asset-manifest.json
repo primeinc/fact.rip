@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/fact.rip/static/css/main.e9cead21.css",
+    "main.js": "/fact.rip/static/js/main.c654ab8b.js",
+    "index.html": "/fact.rip/index.html",
+    "main.e9cead21.css.map": "/fact.rip/static/css/main.e9cead21.css.map",
+    "main.c654ab8b.js.map": "/fact.rip/static/js/main.c654ab8b.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.e9cead21.css",
+    "static/js/main.c654ab8b.js"
+  ]
+}
