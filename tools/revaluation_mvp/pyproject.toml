@@ -1,0 +1,16 @@
+[project]
+name = "blob-revaluation-mvp"
+version = "1.0.0"
+description = "SSOT MVP for cue-conditioned revaluation in a gridworld"
+requires-python = ">=3.10"
+dependencies = [
+    "gymnasium>=0.29.0",
+    "stable-baselines3[extra]>=2.0.0",
+    "numpy>=1.26.0",
+    "torch>=2.0.0",
+    "pandas>=2.0.0",
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+    "scipy>=1.12.0",
+    "pyyaml>=6.0",
+]

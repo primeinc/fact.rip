@@ -1,0 +1,3 @@
+# Inherits base.yaml
+seeds: [0]
+reliabilities: [1.0]
