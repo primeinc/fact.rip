@@ -1,9 +1,16 @@
 """
-Full experiment runner — one command entrypoint.
+Full experiment runner -- one command entrypoint.
+
+Logs to both console and artifacts/experiment.log with timestamps.
+Progress is tracked in artifacts/progress.json for observability.
 """
+import json
+import logging
+import sys
+import time
 import yaml
 
-from utils.paths import CONFIGS, ensure_dirs
+from utils.paths import CONFIGS, ARTIFACTS, ensure_dirs
 from models.appraisal_network import appraisal_model_path, train_appraisal_layer
 from training.train_raw_only import train as train_raw
 from training.train_with_appraisal import train as train_app
@@ -14,6 +21,94 @@ from plotting.figures_2x2 import make_2x2_figure
 from training.train_raw_only import model_path as raw_model_path
 from training.train_with_appraisal import model_path as app_model_path
 
+LOG_FILE = ARTIFACTS / "experiment.log"
+PROGRESS_FILE = ARTIFACTS / "progress.json"
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
+def setup_logging():
+    """Configure logging to both console (INFO) and file (DEBUG)."""
+    logger = logging.getLogger("experiment")
+    logger.setLevel(logging.DEBUG)
+    fmt = logging.Formatter(
+        "%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%H:%M:%S"
+    )
+
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(fmt)
+    logger.addHandler(ch)
+
+    fh = logging.FileHandler(LOG_FILE, mode="w")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    return logger
+
+
+# ---------------------------------------------------------------------------
+# Progress tracking
+# ---------------------------------------------------------------------------
+
+def _fmt_duration(seconds):
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}h{m:02d}m{s:02d}s"
+    return f"{m}m{s:02d}s"
+
+
+class ProgressTracker:
+    """Write a JSON file after every step so progress is observable."""
+
+    def __init__(self, total_train, total_eval):
+        self.total_train = total_train
+        self.total_eval = total_eval
+        self.train_done = 0
+        self.eval_done = 0
+        self.phase = "init"
+        self.current = ""
+        self.start_time = time.time()
+        self._write()
+
+    def _write(self):
+        elapsed = time.time() - self.start_time
+        data = {
+            "phase": self.phase,
+            "current": self.current,
+            "training": f"{self.train_done}/{self.total_train}",
+            "evaluation": f"{self.eval_done}/{self.total_eval}",
+            "elapsed_s": round(elapsed, 1),
+            "elapsed_human": _fmt_duration(elapsed),
+        }
+        PROGRESS_FILE.write_text(json.dumps(data, indent=2))
+
+    def start_train(self, label):
+        self.phase = "training"
+        self.current = label
+        self._write()
+
+    def finish_train(self):
+        self.train_done += 1
+        self._write()
+
+    def start_eval(self, label):
+        self.phase = "evaluation"
+        self.current = label
+        self._write()
+
+    def finish_eval(self):
+        self.eval_done += 1
+        self._write()
+
+    def done(self):
+        self.phase = "complete"
+        self.current = ""
+        self._write()
+
 
 def load_config():
     with open(CONFIGS / "base.yaml", "r", encoding="utf-8") as f:
@@ -22,48 +117,92 @@ def load_config():
 
 def main():
     ensure_dirs()
+    log = setup_logging()
     cfg = load_config()
 
+    seeds = cfg["seeds"]
+    rels = cfg["reliabilities"]
+    modes = cfg["eval_modes"]
+    total_train = len(rels) * len(seeds) * 2
+    total_eval = len(rels) * len(seeds) * len(modes) * 2 * 2
+    progress = ProgressTracker(total_train, total_eval)
+
+    log.info("Experiment started -- %d train runs, %d eval runs", total_train, total_eval)
+    log.info("Config: seeds=%s  reliabilities=%s  timesteps=%s",
+             seeds, rels, cfg["training"]["total_timesteps"])
+
+    # --- Appraisal model ---
     if not appraisal_model_path().exists():
-        print("=== Generating appraisal model ===")
+        log.info("Training appraisal network ...")
         train_appraisal_layer(
             num_samples=cfg["appraisal"]["num_samples"],
             epochs=cfg["appraisal"]["epochs"],
             lr=cfg["appraisal"]["lr"],
             positive_bonus_target=cfg["appraisal"]["positive_bonus_target"],
         )
+        log.info("Appraisal network saved.")
+    else:
+        log.info("Appraisal network already exists -- skipping.")
 
-    for rel in cfg["reliabilities"]:
-        for seed in cfg["seeds"]:
-            print(f"\n=== Reliability={rel} | Seed={seed} ===")
+    # --- Training + evaluation loop ---
+    for ri, rel in enumerate(rels):
+        for si, seed in enumerate(seeds):
+            pair_label = f"rel={rel} seed={seed}"
+            pair_idx = ri * len(seeds) + si + 1
+            pair_total = len(rels) * len(seeds)
+
+            # Train RAW
+            label = f"[{pair_idx}/{pair_total}] RAW-ONLY  {pair_label}"
+            log.info("TRAIN  %s", label)
+            progress.start_train(label)
+            t0 = time.time()
             train_raw(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
+            log.info("TRAIN  %s  done in %s", label, _fmt_duration(time.time() - t0))
+            progress.finish_train()
+
+            # Train APPRAISAL
+            label = f"[{pair_idx}/{pair_total}] APPRAISAL {pair_label}"
+            log.info("TRAIN  %s", label)
+            progress.start_train(label)
+            t0 = time.time()
             train_app(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
+            log.info("TRAIN  %s  done in %s", label, _fmt_duration(time.time() - t0))
+            progress.finish_train()
 
-            for mode in cfg["eval_modes"]:
+            # Evaluate
+            for mode in modes:
                 for eval_type in ["raw", "appraisal"]:
-                    evaluate_run(
-                        model_path=raw_model_path(seed, rel),
-                        train_type="raw_only",
-                        eval_type=eval_type,
-                        mode=mode,
-                        reliability=rel,
-                        seed=seed,
-                        num_episodes=cfg["evaluation"]["num_episodes"],
-                    )
-                    evaluate_run(
-                        model_path=app_model_path(seed, rel),
-                        train_type="with_appraisal",
-                        eval_type=eval_type,
-                        mode=mode,
-                        reliability=rel,
-                        seed=seed,
-                        num_episodes=cfg["evaluation"]["num_episodes"],
-                    )
+                    for train_type, model_path_fn, train_label in [
+                        ("raw_only", raw_model_path, "RAW"),
+                        ("with_appraisal", app_model_path, "APP"),
+                    ]:
+                        elabel = f"{train_label}/{eval_type}/{mode} {pair_label}"
+                        log.debug("EVAL   %s", elabel)
+                        progress.start_eval(elabel)
+                        evaluate_run(
+                            model_path=model_path_fn(seed, rel),
+                            train_type=train_type,
+                            eval_type=eval_type,
+                            mode=mode,
+                            reliability=rel,
+                            seed=seed,
+                            num_episodes=cfg["evaluation"]["num_episodes"],
+                        )
+                        progress.finish_eval()
 
+            log.info("Completed %s -- evals done: %d/%d",
+                     pair_label, progress.eval_done, total_eval)
+
+    # --- Aggregate & plot ---
+    log.info("Aggregating results ...")
     aggregate_results()
+    log.info("Generating figures ...")
     make_main_figure()
     make_2x2_figure()
-    print("\u2705 Full experiment complete.")
+
+    progress.done()
+    log.info("Experiment complete. Total time: %s",
+             _fmt_duration(time.time() - progress.start_time))
 
 
 if __name__ == "__main__":
