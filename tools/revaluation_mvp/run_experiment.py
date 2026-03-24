@@ -7,10 +7,13 @@ Progress is tracked in artifacts/progress.json for observability.
 Usage:
     uv run python run_experiment.py                        # uses configs/base.yaml
     uv run python run_experiment.py --config configs/debug.yaml
+    uv run python run_experiment.py --clean                # wipe artifacts and re-run
 """
 import argparse
+import hashlib
 import json
 import logging
+import shutil
 import sys
 import time
 import yaml
@@ -28,6 +31,7 @@ from training.train_with_appraisal import model_path as app_model_path
 
 LOG_FILE = ARTIFACTS / "experiment.log"
 PROGRESS_FILE = ARTIFACTS / "progress.json"
+CONFIG_HASH_FILE = ARTIFACTS / "config_hash.json"
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -52,6 +56,37 @@ def setup_logging():
     logger.addHandler(fh)
 
     return logger
+
+
+# ---------------------------------------------------------------------------
+# Config hash validation
+# ---------------------------------------------------------------------------
+
+def _config_hash(cfg: dict) -> str:
+    raw = json.dumps(cfg, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _check_config_hash(cfg: dict, log, clean: bool) -> None:
+    current = _config_hash(cfg)
+    if CONFIG_HASH_FILE.exists():
+        saved = json.loads(CONFIG_HASH_FILE.read_text())
+        if saved.get("hash") != current:
+            if clean:
+                log.warning("Config changed -- wiping stale artifacts (--clean).")
+                for d in [ARTIFACTS / "runs", ARTIFACTS / "tables",
+                          ARTIFACTS / "figures", ARTIFACTS / "models"]:
+                    if d.exists():
+                        shutil.rmtree(d)
+                ensure_dirs()
+            else:
+                log.error(
+                    "Config hash mismatch! Cached artifacts were produced with a "
+                    "different config. Re-run with --clean to wipe stale results, "
+                    "or delete artifacts/ manually."
+                )
+                sys.exit(1)
+    CONFIG_HASH_FILE.write_text(json.dumps({"hash": current}))
 
 
 # ---------------------------------------------------------------------------
@@ -128,11 +163,18 @@ def main():
         default=None,
         help="Path to a YAML config file (default: configs/base.yaml)",
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Wipe stale artifacts if config has changed",
+    )
     args = parser.parse_args()
 
     ensure_dirs()
     log = setup_logging()
     cfg = load_config(args.config)
+
+    _check_config_hash(cfg, log, clean=args.clean)
 
     env_cfg = cfg.get("environment", {})
     device = cfg["training"].get("device", "cpu")
@@ -148,18 +190,16 @@ def main():
     log.info("Config: seeds=%s  reliabilities=%s  timesteps=%s",
              seeds, rels, cfg["training"]["total_timesteps"])
 
-    # --- Appraisal model ---
-    if not appraisal_model_path().exists():
-        log.info("Training appraisal network ...")
-        train_appraisal_layer(
-            num_samples=cfg["appraisal"]["num_samples"],
-            epochs=cfg["appraisal"]["epochs"],
-            lr=cfg["appraisal"]["lr"],
-            positive_bonus_target=cfg["appraisal"]["positive_bonus_target"],
-        )
-        log.info("Appraisal network saved.")
-    else:
-        log.info("Appraisal network already exists -- skipping.")
+    # --- Appraisal models (one per reliability level) ---
+    for rel in rels:
+        if not appraisal_model_path(rel).exists():
+            log.info("Training appraisal network (reliability=%.2f) ...", rel)
+            train_appraisal_layer(
+                reliability=rel,
+                positive_bonus_target=cfg["appraisal"]["positive_bonus_target"],
+            )
+        else:
+            log.info("Appraisal network (reliability=%.2f) already exists -- skipping.", rel)
 
     # --- Training + evaluation loop ---
     for ri, rel in enumerate(rels):

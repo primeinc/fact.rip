@@ -10,6 +10,8 @@ from utils.seed import set_global_seed
 
 log = logging.getLogger(__name__)
 
+_ENV_EXPLICIT_KEYS = frozenset({"mode", "context_reliability", "appraisal_model", "include_cue"})
+
 
 def model_path(seed: int, reliability: float) -> Path:
     ensure_dirs()
@@ -29,8 +31,8 @@ def train(
         return out
 
     set_global_seed(seed)
-    appraisal_net = load_appraisal_model()
-    env_kwargs = env_cfg or {}
+    appraisal_net = load_appraisal_model(reliability)
+    env_kwargs = {k: v for k, v in (env_cfg or {}).items() if k not in _ENV_EXPLICIT_KEYS}
     env = BlobRevaluationEnv(
         mode="honest_revaluation",
         context_reliability=reliability,

@@ -29,11 +29,15 @@ def isolated_runs(tmp_path, monkeypatch):
     return runs_tmp
 
 
-def test_evaluate_run_writes_csv_and_json(isolated_runs, tmp_path):
+def test_evaluate_run_writes_csv_and_json(isolated_runs, tmp_path, monkeypatch):
     from evaluation.evaluate import evaluate_run
+    import models.appraisal_network as apn
 
     fake_model_path = tmp_path / "fake_model.zip"
     fake_model_path.touch()
+
+    # Stub appraisal model loading (not needed for eval_type="raw")
+    monkeypatch.setattr(apn, "load_appraisal_model", lambda rel: None)
 
     _, summary = evaluate_run(
         model_path=fake_model_path,
@@ -57,7 +61,7 @@ def test_evaluate_run_writes_csv_and_json(isolated_runs, tmp_path):
     import pandas as pd
     df = pd.read_csv(episode_csv)
     expected_cols = {"episode", "return", "approached", "dwell_steps", "appraisal_sum",
-                     "train_type", "eval_type", "mode", "reliability", "seed"}
+                     "context_cue", "train_type", "eval_type", "mode", "reliability", "seed"}
     assert expected_cols <= set(df.columns), f"Missing CSV columns: {expected_cols - set(df.columns)}"
     assert len(df) == 5
 
@@ -65,7 +69,8 @@ def test_evaluate_run_writes_csv_and_json(isolated_runs, tmp_path):
     with open(summary_json) as f:
         data = json.load(f)
     expected_keys = {"run_id", "train_type", "eval_type", "mode", "reliability", "seed",
-                     "mean_approach_rate", "mean_dwell", "mean_return", "mean_appraisal_sum",
+                     "mean_approach_rate", "mean_approach_rate_cue1", "mean_approach_rate_cue0",
+                     "mean_dwell", "mean_return", "mean_appraisal_sum",
                      "episode_csv"}
     assert expected_keys <= set(data.keys()), f"Missing JSON keys: {expected_keys - set(data.keys())}"
     assert data["train_type"] == "raw_only"

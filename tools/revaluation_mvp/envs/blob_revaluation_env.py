@@ -36,7 +36,7 @@ class BlobRevaluationEnv(gym.Env):
         self.include_cue = include_cue
 
         self.action_space = spaces.Discrete(4)
-        obs_dim = 7 if include_cue else 6
+        obs_dim = 8 if include_cue else 7  # +1 for visited_aversive flag
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
 
     def _get_obs(self) -> np.ndarray:
@@ -45,6 +45,7 @@ class BlobRevaluationEnv(gym.Env):
             self.agent_pos[0] / norm, self.agent_pos[1] / norm,
             self.goal_pos[0] / norm, self.goal_pos[1] / norm,
             self.aversive_pos[0] / norm, self.aversive_pos[1] / norm,
+            float(self.visited_aversive),
         ]
         if self.include_cue:
             base.append(float(self.context_cue))
@@ -93,8 +94,9 @@ class BlobRevaluationEnv(gym.Env):
         reward = self.step_penalty
         raw_reward = 0.0
         appraisal_bonus = 0.0
+        on_aversive = self.agent_pos == self.aversive_pos
 
-        if self.agent_pos == self.aversive_pos:
+        if on_aversive and not self.visited_aversive:
             raw_reward = self.raw_local_cost
             if self.appraisal_model is not None:
                 input_tensor = torch.tensor([[float(self.context_cue)]], dtype=torch.float32)
@@ -118,6 +120,7 @@ class BlobRevaluationEnv(gym.Env):
             "true_benefit": self.true_benefit,
             "context_cue": self.context_cue,
             "visited_aversive": self.visited_aversive,
+            "on_aversive": on_aversive,
             "raw_reward": raw_reward,
             "appraisal_bonus": appraisal_bonus,
         }

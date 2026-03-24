@@ -14,6 +14,8 @@ def _write_summary(path, *, train_type, eval_type, mode, reliability, seed, appr
         "reliability": reliability,
         "seed": seed,
         "mean_approach_rate": approach,
+        "mean_approach_rate_cue1": approach + 0.05,
+        "mean_approach_rate_cue0": approach - 0.05,
         "mean_dwell": 2.0,
         "mean_return": ret,
         "mean_appraisal_sum": 0.1,
@@ -58,6 +60,8 @@ def test_aggregate_results_produces_expected_schema(tmp_path, monkeypatch):
         "mean_dwell", "ci95_dwell_low", "ci95_dwell_high",
         "mean_return", "ci95_return_low", "ci95_return_high",
         "n_seeds",
+        "mean_approach_rate_cue1", "ci95_approach_cue1_low", "ci95_approach_cue1_high",
+        "mean_approach_rate_cue0", "ci95_approach_cue0_low", "ci95_approach_cue0_high",
     }
     assert expected_cols <= set(final_df.columns), (
         f"Missing columns: {expected_cols - set(final_df.columns)}"
