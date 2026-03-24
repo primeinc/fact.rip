@@ -1,6 +1,11 @@
 """
 Full experiment runner — one command entrypoint.
+
+Usage:
+    uv run python run_experiment.py                        # uses configs/base.yaml
+    uv run python run_experiment.py --config configs/debug.yaml
 """
+import argparse
 import yaml
 
 from utils.paths import CONFIGS, ensure_dirs
@@ -15,14 +20,26 @@ from training.train_raw_only import model_path as raw_model_path
 from training.train_with_appraisal import model_path as app_model_path
 
 
-def load_config():
-    with open(CONFIGS / "base.yaml", "r", encoding="utf-8") as f:
+def load_config(path=None):
+    cfg_path = path if path else CONFIGS / "base.yaml"
+    with open(cfg_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the full revaluation MVP experiment.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to a YAML config file (default: configs/base.yaml)",
+    )
+    args = parser.parse_args()
+
     ensure_dirs()
-    cfg = load_config()
+    cfg = load_config(args.config)
+
+    env_cfg = cfg.get("environment", {})
+    device = cfg["training"].get("device", "cpu")
 
     if not appraisal_model_path().exists():
         print("=== Generating appraisal model ===")
@@ -36,8 +53,20 @@ def main():
     for rel in cfg["reliabilities"]:
         for seed in cfg["seeds"]:
             print(f"\n=== Reliability={rel} | Seed={seed} ===")
-            train_raw(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
-            train_app(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
+            train_raw(
+                seed,
+                rel,
+                total_timesteps=cfg["training"]["total_timesteps"],
+                device=device,
+                env_cfg=env_cfg,
+            )
+            train_app(
+                seed,
+                rel,
+                total_timesteps=cfg["training"]["total_timesteps"],
+                device=device,
+                env_cfg=env_cfg,
+            )
 
             for mode in cfg["eval_modes"]:
                 for eval_type in ["raw", "appraisal"]:
@@ -49,6 +78,8 @@ def main():
                         reliability=rel,
                         seed=seed,
                         num_episodes=cfg["evaluation"]["num_episodes"],
+                        device=device,
+                        env_cfg=env_cfg,
                     )
                     evaluate_run(
                         model_path=app_model_path(seed, rel),
@@ -58,6 +89,8 @@ def main():
                         reliability=rel,
                         seed=seed,
                         num_episodes=cfg["evaluation"]["num_episodes"],
+                        device=device,
+                        env_cfg=env_cfg,
                     )
 
     aggregate_results()

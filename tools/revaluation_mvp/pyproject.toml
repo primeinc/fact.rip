@@ -14,3 +14,8 @@ dependencies = [
     "scipy>=1.12.0",
     "pyyaml>=6.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
