@@ -1,4 +1,5 @@
 import glob
+import logging
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -6,6 +7,8 @@ from scipy.stats import bootstrap
 
 from utils.io import read_json, write_csv
 from utils.paths import RUNS, TABLES, ensure_dirs
+
+log = logging.getLogger(__name__)
 
 
 def _ci95(series: pd.Series):
@@ -19,7 +22,7 @@ def aggregate_results():
     ensure_dirs()
     summary_files = sorted(glob.glob(str(RUNS / "*__summary.json")))
     if not summary_files:
-        print("No run summaries found.")
+        log.warning("No run summaries found.")
         return None
 
     summaries = [read_json(Path(p)) for p in summary_files]
@@ -49,10 +52,12 @@ def aggregate_results():
         })
 
     final_df = pd.DataFrame(final_rows)
-    write_csv(TABLES / "aggregated_summary.csv", final_df)
-    print(f"\u2713 Wrote {TABLES / 'aggregated_summary.csv'}")
+    out = TABLES / "aggregated_summary.csv"
+    write_csv(out, final_df)
+    log.info("Wrote %s (%d rows)", out, len(final_df))
     return seed_df, final_df
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     aggregate_results()

@@ -1,11 +1,14 @@
+import logging
 import sys
 from pathlib import Path
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_checker import check_env
 
 from envs.blob_revaluation_env import BlobRevaluationEnv
 from models.appraisal_network import load_appraisal_model
 from utils.paths import MODELS, ensure_dirs
+from utils.seed import set_global_seed
+
+log = logging.getLogger(__name__)
 
 
 def model_path(seed: int, reliability: float) -> Path:
@@ -16,9 +19,10 @@ def model_path(seed: int, reliability: float) -> Path:
 def train(seed: int, reliability: float, total_timesteps: int = 200000):
     out = model_path(seed, reliability)
     if out.exists():
-        print(f"Skipping existing WITH-APPRAISAL (reliability={reliability}, seed={seed})")
+        log.info("Skipping existing WITH-APPRAISAL (rel=%s, seed=%d)", reliability, seed)
         return out
 
+    set_global_seed(seed)
     appraisal_net = load_appraisal_model()
     env = BlobRevaluationEnv(
         mode="honest_revaluation",
@@ -26,16 +30,16 @@ def train(seed: int, reliability: float, total_timesteps: int = 200000):
         appraisal_model=appraisal_net,
         include_cue=True,
     )
-    print(f"=== Training WITH-APPRAISAL | rel={reliability} seed={seed} ===")
-    check_env(env, warn=True)
-    model = PPO("MlpPolicy", env, verbose=1, seed=seed, device="cpu")
-    model.learn(total_timesteps=total_timesteps, progress_bar=True)
+    log.info("Training WITH-APPRAISAL | rel=%s seed=%d", reliability, seed)
+    model = PPO("MlpPolicy", env, verbose=0, seed=seed, device="cpu")
+    model.learn(total_timesteps=total_timesteps)
     model.save(out.with_suffix(""))
-    print(f"\u2713 Saved {out}")
+    log.info("Saved %s", out)
     return out
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     seed = int(sys.argv[1]) if len(sys.argv) > 1 else 42
     reliability = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
     train(seed, reliability)

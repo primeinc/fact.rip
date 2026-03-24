@@ -1,8 +1,13 @@
+import logging
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from utils.paths import TABLES, FIGURES, ensure_dirs
+
+log = logging.getLogger(__name__)
 
 
 def _plot_grouped_bars(ax, sub, metric, low, high, title):
@@ -30,7 +35,6 @@ def _plot_grouped_bars(ax, sub, metric, low, high, title):
 def make_main_figure():
     ensure_dirs()
     df = pd.read_csv(TABLES / "aggregated_summary.csv")
-    # main effect plot: raw-eval only for clean policy comparison
     df = df[df["eval_type"] == "raw"]
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharey="row")
@@ -40,12 +44,12 @@ def make_main_figure():
         _plot_grouped_bars(
             axes[i, 0], sub,
             "mean_approach_rate", "ci95_approach_low", "ci95_approach_high",
-            f"Approach Rate \u2014 {mode}"
+            f"Approach Rate -- {mode}"
         )
         _plot_grouped_bars(
             axes[i, 1], sub,
             "mean_dwell", "ci95_dwell_low", "ci95_dwell_high",
-            f"Mean Dwell \u2014 {mode}"
+            f"Mean Dwell -- {mode}"
         )
 
     axes[0, 0].legend()
@@ -53,8 +57,10 @@ def make_main_figure():
     fig.tight_layout()
     fig.savefig(FIGURES / "figure_main_effects.png", dpi=300)
     fig.savefig(FIGURES / "figure_main_effects.svg", bbox_inches="tight")
-    print(f"\u2713 Saved {FIGURES / 'figure_main_effects.png'}")
+    plt.close(fig)
+    log.info("Saved %s", FIGURES / "figure_main_effects.png")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     make_main_figure()

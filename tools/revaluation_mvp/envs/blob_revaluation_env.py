@@ -20,8 +20,10 @@ class BlobRevaluationEnv(gym.Env):
         step_penalty: float = -0.01,
         appraisal_model: nn.Module | None = None,
         include_cue: bool = True,
+        render_mode: str | None = None,
     ):
         super().__init__()
+        self.render_mode = render_mode
         self.grid_size = grid_size
         self.raw_local_cost = raw_local_cost
         self.goal_reward = goal_reward

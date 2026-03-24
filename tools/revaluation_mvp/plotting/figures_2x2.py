@@ -1,14 +1,18 @@
+import logging
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from utils.paths import TABLES, FIGURES, ensure_dirs
+
+log = logging.getLogger(__name__)
 
 
 def make_2x2_figure():
     ensure_dirs()
     df = pd.read_csv(TABLES / "aggregated_summary.csv")
-    # choose reliability 1.0 for the mechanism figure to keep it readable
     df = df[df["reliability"] == 1.0]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
@@ -26,14 +30,16 @@ def make_2x2_figure():
         axes[i].errorbar(x, means, yerr=[lower, upper], fmt="none", color="black", capsize=4)
         axes[i].set_xticks(x)
         axes[i].set_xticklabels(sub["cell"], rotation=20, ha="right")
-        axes[i].set_title(f"2x2 mechanism \u2014 {mode}")
+        axes[i].set_title(f"2x2 mechanism -- {mode}")
         axes[i].set_ylabel("Approach rate")
 
     fig.tight_layout()
     fig.savefig(FIGURES / "figure_2x2_mechanism.png", dpi=300)
     fig.savefig(FIGURES / "figure_2x2_mechanism.svg", bbox_inches="tight")
-    print(f"\u2713 Saved {FIGURES / 'figure_2x2_mechanism.png'}")
+    plt.close(fig)
+    log.info("Saved %s", FIGURES / "figure_2x2_mechanism.png")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     make_2x2_figure()

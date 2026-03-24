@@ -1,3 +1,4 @@
+import logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -5,6 +6,8 @@ from pathlib import Path
 
 from envs.blob_revaluation_env import BlobRevaluationEnv
 from utils.paths import MODELS, ensure_dirs
+
+log = logging.getLogger(__name__)
 
 
 class AppraisalNetwork(nn.Module):
@@ -55,11 +58,11 @@ def train_appraisal_layer(
         loss.backward()
         optimizer.step()
         if epoch % 10 == 0:
-            print(f"Appraisal epoch {epoch:3d} | loss = {loss.item():.5f}")
+            log.info("Appraisal epoch %3d | loss = %.5f", epoch, loss.item())
 
     path = appraisal_model_path()
     torch.save(model.state_dict(), path)
-    print(f"\u2713 AppraisalNetwork trained and saved to {path}")
+    log.info("AppraisalNetwork trained and saved to %s", path)
     return model
 
 
@@ -71,4 +74,5 @@ def load_appraisal_model() -> AppraisalNetwork:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     train_appraisal_layer()

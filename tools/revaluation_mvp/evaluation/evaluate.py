@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -8,6 +9,8 @@ from models.appraisal_network import load_appraisal_model
 from utils.io import write_csv, write_json
 from utils.metadata import run_id
 from utils.paths import RUNS, ensure_dirs
+
+log = logging.getLogger(__name__)
 
 
 def evaluate_run(
@@ -20,6 +23,12 @@ def evaluate_run(
     num_episodes: int = 500,
 ):
     ensure_dirs()
+    rid = run_id(train_type, eval_type, mode, reliability, seed)
+    summary_path = RUNS / f"{rid}__summary.json"
+    if summary_path.exists():
+        log.debug("Skipping existing eval %s", rid)
+        return None, None
+
     appraisal_net = load_appraisal_model() if eval_type == "appraisal" else None
     env = BlobRevaluationEnv(
         mode=mode,
@@ -62,9 +71,7 @@ def evaluate_run(
         })
 
     df = pd.DataFrame(rows)
-    rid = run_id(train_type, eval_type, mode, reliability, seed)
     episode_path = RUNS / f"{rid}__episodes.csv"
-    summary_path = RUNS / f"{rid}__summary.json"
 
     write_csv(episode_path, df)
 
@@ -82,5 +89,5 @@ def evaluate_run(
         "episode_csv": str(episode_path),
     }
     write_json(summary_path, summary)
-    print(f"\u2713 Evaluated {rid}")
+    log.debug("Evaluated %s", rid)
     return df, summary
