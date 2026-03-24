@@ -1,24 +1,39 @@
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-import os
-sns.set_style("whitegrid")
 
-def plot_2x2():
-    os.makedirs("artifacts/figures", exist_ok=True)
-    df = pd.read_csv("artifacts/tables/aggregated_summary.csv")
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharey="row")
+from utils.paths import TABLES, FIGURES, ensure_dirs
 
-    for i, m in enumerate(["honest_revaluation", "fake_revaluation"]):
-        for j, et in enumerate(["raw", "appraisal"]):
-            sub = df[(df["mode"] == m) & (df["eval_type"] == et)]
-            sns.barplot(data=sub, x="reliability", y="mean_approach_rate", hue="train_type", ax=axes[i, j])
-            axes[i, j].set_title(f"{m} | eval={et}")
-    plt.suptitle("2\u00d72 Matrix \u2014 Train Type \u00d7 Eval Type")
-    plt.tight_layout()
-    plt.savefig("artifacts/figures/2x2_matrix.png", dpi=300)
-    plt.savefig("artifacts/figures/2x2_matrix.svg", bbox_inches="tight")
-    print("\u2713 2\u00d72 mechanism figure saved")
+
+def make_2x2_figure():
+    ensure_dirs()
+    df = pd.read_csv(TABLES / "aggregated_summary.csv")
+    # choose reliability 1.0 for the mechanism figure to keep it readable
+    df = df[df["reliability"] == 1.0]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+
+    for i, mode in enumerate(["honest_revaluation", "fake_revaluation"]):
+        sub = df[df["mode"] == mode].copy()
+        sub["cell"] = sub["train_type"] + " -> " + sub["eval_type"]
+        sub = sub.sort_values(["train_type", "eval_type"])
+        x = np.arange(len(sub))
+        means = sub["mean_approach_rate"].to_numpy()
+        lower = means - sub["ci95_approach_low"].to_numpy()
+        upper = sub["ci95_approach_high"].to_numpy() - means
+
+        axes[i].bar(x, means)
+        axes[i].errorbar(x, means, yerr=[lower, upper], fmt="none", color="black", capsize=4)
+        axes[i].set_xticks(x)
+        axes[i].set_xticklabels(sub["cell"], rotation=20, ha="right")
+        axes[i].set_title(f"2x2 mechanism \u2014 {mode}")
+        axes[i].set_ylabel("Approach rate")
+
+    fig.tight_layout()
+    fig.savefig(FIGURES / "figure_2x2_mechanism.png", dpi=300)
+    fig.savefig(FIGURES / "figure_2x2_mechanism.svg", bbox_inches="tight")
+    print(f"\u2713 Saved {FIGURES / 'figure_2x2_mechanism.png'}")
+
 
 if __name__ == "__main__":
-    plot_2x2()
+    make_2x2_figure()

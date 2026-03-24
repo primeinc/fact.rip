@@ -1,26 +1,60 @@
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-import os
-sns.set_style("whitegrid")
 
-def plot_main():
-    os.makedirs("artifacts/figures", exist_ok=True)
-    df = pd.read_csv("artifacts/tables/aggregated_summary.csv")
+from utils.paths import TABLES, FIGURES, ensure_dirs
+
+
+def _plot_grouped_bars(ax, sub, metric, low, high, title):
+    reliabilities = sorted(sub["reliability"].unique())
+    train_types = list(sub["train_type"].unique())
+    width = 0.35
+    x = np.arange(len(reliabilities))
+
+    for idx, tt in enumerate(train_types):
+        tt_df = sub[sub["train_type"] == tt].sort_values("reliability")
+        xpos = x + (idx - (len(train_types) - 1) / 2) * width
+        means = tt_df[metric].to_numpy()
+        lower = means - tt_df[low].to_numpy()
+        upper = tt_df[high].to_numpy() - means
+
+        ax.bar(xpos, means, width=width, label=tt)
+        ax.errorbar(xpos, means, yerr=[lower, upper], fmt="none", color="black", capsize=4)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(r) for r in reliabilities])
+    ax.set_xlabel("Reliability")
+    ax.set_title(title)
+
+
+def make_main_figure():
+    ensure_dirs()
+    df = pd.read_csv(TABLES / "aggregated_summary.csv")
+    # main effect plot: raw-eval only for clean policy comparison
+    df = df[df["eval_type"] == "raw"]
+
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharey="row")
 
-    for i, m in enumerate(["honest_revaluation", "fake_revaluation"]):
-        sub = df[df["mode"] == m].copy()
-        sns.barplot(data=sub, x="reliability", y="mean_approach_rate", hue="train_type", ax=axes[i, 0])
-        sns.barplot(data=sub, x="reliability", y="mean_dwell", hue="train_type", ax=axes[i, 1])
-        axes[i, 0].set_title(f"Approach Rate \u2014 {m}")
-        axes[i, 1].set_title(f"Mean Dwell \u2014 {m}")
+    for i, mode in enumerate(["honest_revaluation", "fake_revaluation"]):
+        sub = df[df["mode"] == mode]
+        _plot_grouped_bars(
+            axes[i, 0], sub,
+            "mean_approach_rate", "ci95_approach_low", "ci95_approach_high",
+            f"Approach Rate \u2014 {mode}"
+        )
+        _plot_grouped_bars(
+            axes[i, 1], sub,
+            "mean_dwell", "ci95_dwell_low", "ci95_dwell_high",
+            f"Mean Dwell \u2014 {mode}"
+        )
 
-    plt.suptitle("Cue-Conditioned Appraisal vs Raw-Only (5 seeds)")
-    plt.tight_layout()
-    plt.savefig("artifacts/figures/main_effect.png", dpi=300)
-    plt.savefig("artifacts/figures/main_effect.svg", bbox_inches="tight")
-    print("\u2713 Main effect figure saved")
+    axes[0, 0].legend()
+    fig.suptitle("Cue-Conditioned Appraisal vs Raw-Only (raw eval, 95% bootstrap CI)")
+    fig.tight_layout()
+    fig.savefig(FIGURES / "figure_main_effects.png", dpi=300)
+    fig.savefig(FIGURES / "figure_main_effects.svg", bbox_inches="tight")
+    print(f"\u2713 Saved {FIGURES / 'figure_main_effects.png'}")
+
 
 if __name__ == "__main__":
-    plot_main()
+    make_main_figure()

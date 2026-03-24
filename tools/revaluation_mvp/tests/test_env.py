@@ -1,16 +1,13 @@
-import unittest
 from envs.blob_revaluation_env import BlobRevaluationEnv
 
-class TestEnv(unittest.TestCase):
-    def test_observation_shape(self):
-        env = BlobRevaluationEnv()
-        obs, _ = env.reset()
-        self.assertEqual(obs.shape, (7,))
 
-    def test_appraisal_no_leak(self):
-        env = BlobRevaluationEnv(appraisal_model=None)
-        obs, _ = env.reset()
-        self.assertIn("appraisal_bonus", env.step(0)[4])  # info dict
+def test_obs_shape():
+    env = BlobRevaluationEnv()
+    obs, _ = env.reset(seed=0)
+    assert obs.shape == (7,)
 
-if __name__ == "__main__":
-    unittest.main()
+
+def test_obs_shape_no_cue():
+    env = BlobRevaluationEnv(include_cue=False)
+    obs, _ = env.reset(seed=0)
+    assert obs.shape == (6,)

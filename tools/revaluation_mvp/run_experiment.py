@@ -1,37 +1,70 @@
 """
-Full grid runner — called by reproduce.py
+Full experiment runner — one command entrypoint.
 """
-import subprocess
-import os
 import yaml
 
-with open("configs/base.yaml") as f:
-    config = yaml.safe_load(f)
+from utils.paths import CONFIGS, ensure_dirs
+from models.appraisal_network import appraisal_model_path, train_appraisal_layer
+from training.train_raw_only import train as train_raw
+from training.train_with_appraisal import train as train_app
+from evaluation.evaluate import evaluate_run
+from evaluation.aggregate import aggregate_results
+from plotting.figures_main import make_main_figure
+from plotting.figures_2x2 import make_2x2_figure
+from training.train_raw_only import model_path as raw_model_path
+from training.train_with_appraisal import model_path as app_model_path
 
-SEEDS = config["seeds"]
-RELIABILITIES = config["reliabilities"]
-EVAL_MODES = config["modes"]
+
+def load_config():
+    with open(CONFIGS / "base.yaml", "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def main():
+    ensure_dirs()
+    cfg = load_config()
+
+    if not appraisal_model_path().exists():
+        print("=== Generating appraisal model ===")
+        train_appraisal_layer(
+            num_samples=cfg["appraisal"]["num_samples"],
+            epochs=cfg["appraisal"]["epochs"],
+            lr=cfg["appraisal"]["lr"],
+            positive_bonus_target=cfg["appraisal"]["positive_bonus_target"],
+        )
+
+    for rel in cfg["reliabilities"]:
+        for seed in cfg["seeds"]:
+            print(f"\n=== Reliability={rel} | Seed={seed} ===")
+            train_raw(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
+            train_app(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
+
+            for mode in cfg["eval_modes"]:
+                for eval_type in ["raw", "appraisal"]:
+                    evaluate_run(
+                        model_path=raw_model_path(seed, rel),
+                        train_type="raw_only",
+                        eval_type=eval_type,
+                        mode=mode,
+                        reliability=rel,
+                        seed=seed,
+                        num_episodes=cfg["evaluation"]["num_episodes"],
+                    )
+                    evaluate_run(
+                        model_path=app_model_path(seed, rel),
+                        train_type="with_appraisal",
+                        eval_type=eval_type,
+                        mode=mode,
+                        reliability=rel,
+                        seed=seed,
+                        num_episodes=cfg["evaluation"]["num_episodes"],
+                    )
+
+    aggregate_results()
+    make_main_figure()
+    make_2x2_figure()
+    print("\u2705 Full experiment complete.")
+
 
 if __name__ == "__main__":
-    os.makedirs("artifacts/tables", exist_ok=True)
-    os.makedirs("artifacts/models", exist_ok=True)
-
-    print("=== Running full publishable grid ===")
-    for rel in RELIABILITIES:
-        for seed in SEEDS:
-            print(f"\n=== Reliability={rel} | Seed={seed} ===")
-            subprocess.run(["python", "-m", "training.train_raw_only", str(seed), str(rel)], check=True)
-            subprocess.run(["python", "-m", "training.train_with_appraisal", str(seed), str(rel)], check=True)
-
-            for train_type in ["raw_only", "with_appraisal"]:
-                model_path = f"artifacts/models/ppo_{train_type}_reliability{rel}_seed{seed}"
-                for eval_appraisal in [False, True]:
-                    for eval_mode in EVAL_MODES:
-                        label = f"{train_type}_trained_to_{'appraisal' if eval_appraisal else 'raw'}_eval"
-                        subprocess.run([
-                            "python", "-m", "evaluation.evaluate",
-                            model_path, str(eval_appraisal), label, train_type,
-                            eval_mode, str(rel), str(seed)
-                        ], check=True)
-
-    print("\n\u2705 Full grid complete.")
+    main()

@@ -1,53 +1,58 @@
+import glob
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from scipy.stats import bootstrap
-import glob
 
-def aggregate():
-    csvs = glob.glob("artifacts/tables/eval_*.csv")
-    if not csvs:
-        print("No CSVs found")
-        return
+from utils.io import read_json, write_csv
+from utils.paths import RUNS, TABLES, ensure_dirs
 
-    all_dfs = [pd.read_csv(f) for f in csvs]
-    big_df = pd.concat(all_dfs, ignore_index=True)
 
-    seed_summary = big_df.groupby(["train_type", "eval_type", "mode", "reliability", "seed"]).agg({
-        "approached": "mean",
-        "dwell_steps": "mean",
-        "return": "mean",
-        "appraisal_sum": "mean"
-    }).reset_index()
+def _ci95(series: pd.Series):
+    if len(series) < 2:
+        return float(series.mean()), np.nan, np.nan
+    res = bootstrap((series.to_numpy(),), np.mean, confidence_level=0.95)
+    return float(series.mean()), float(res.confidence_interval.low), float(res.confidence_interval.high)
 
-    def ci95(series):
-        if len(series) < 2:
-            return series.mean(), np.nan, np.nan
-        res = bootstrap((series.to_numpy(),), np.mean, confidence_level=0.95)
-        return series.mean(), res.confidence_interval.low, res.confidence_interval.high
 
-    final_summary = []
-    for g, sub in seed_summary.groupby(["train_type", "eval_type", "mode", "reliability"]):
-        m_approach, l_approach, u_approach = ci95(sub["approached"])
-        m_dwell, l_dwell, u_dwell = ci95(sub["dwell_steps"])
-        final_summary.append({
+def aggregate_results():
+    ensure_dirs()
+    summary_files = sorted(glob.glob(str(RUNS / "*__summary.json")))
+    if not summary_files:
+        print("No run summaries found.")
+        return None
+
+    summaries = [read_json(Path(p)) for p in summary_files]
+    seed_df = pd.DataFrame(summaries)
+    write_csv(TABLES / "seed_level_summary.csv", seed_df)
+
+    final_rows = []
+    for g, sub in seed_df.groupby(["train_type", "eval_type", "mode", "reliability"]):
+        m_a, l_a, u_a = _ci95(sub["mean_approach_rate"])
+        m_d, l_d, u_d = _ci95(sub["mean_dwell"])
+        m_r, l_r, u_r = _ci95(sub["mean_return"])
+        final_rows.append({
             "train_type": g[0],
             "eval_type": g[1],
             "mode": g[2],
             "reliability": g[3],
-            "mean_approach_rate": m_approach,
-            "ci95_approach_low": l_approach,
-            "ci95_approach_high": u_approach,
-            "mean_dwell": m_dwell,
-            "ci95_dwell_low": l_dwell,
-            "ci95_dwell_high": u_dwell,
-            "n_seeds": len(sub),
+            "mean_approach_rate": m_a,
+            "ci95_approach_low": l_a,
+            "ci95_approach_high": u_a,
+            "mean_dwell": m_d,
+            "ci95_dwell_low": l_d,
+            "ci95_dwell_high": u_d,
+            "mean_return": m_r,
+            "ci95_return_low": l_r,
+            "ci95_return_high": u_r,
+            "n_seeds": int(len(sub)),
         })
 
-    summary_df = pd.DataFrame(final_summary)
-    summary_df.to_csv("artifacts/tables/aggregated_summary.csv", index=False)
-    print("\u2713 Aggregated across-seed results saved")
-    print(summary_df.round(3))
-    return summary_df
+    final_df = pd.DataFrame(final_rows)
+    write_csv(TABLES / "aggregated_summary.csv", final_df)
+    print(f"\u2713 Wrote {TABLES / 'aggregated_summary.csv'}")
+    return seed_df, final_df
+
 
 if __name__ == "__main__":
-    aggregate()
+    aggregate_results()

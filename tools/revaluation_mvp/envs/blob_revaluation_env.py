@@ -4,10 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+
 class BlobRevaluationEnv(gym.Env):
-    """
-    SSOT MVP — final publishable version
-    """
     metadata = {"render_modes": []}
 
     def __init__(
@@ -21,6 +19,7 @@ class BlobRevaluationEnv(gym.Env):
         max_steps: int = 50,
         step_penalty: float = -0.01,
         appraisal_model: nn.Module | None = None,
+        include_cue: bool = True,
     ):
         super().__init__()
         self.grid_size = grid_size
@@ -32,24 +31,31 @@ class BlobRevaluationEnv(gym.Env):
         self.max_steps = max_steps
         self.step_penalty = step_penalty
         self.appraisal_model = appraisal_model
+        self.include_cue = include_cue
 
         self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(7,), dtype=np.float32)
+        obs_dim = 7 if include_cue else 6
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
 
     def _get_obs(self) -> np.ndarray:
         norm = float(self.grid_size - 1) if self.grid_size > 1 else 1.0
-        return np.array([
+        base = [
             self.agent_pos[0] / norm, self.agent_pos[1] / norm,
             self.goal_pos[0] / norm, self.goal_pos[1] / norm,
             self.aversive_pos[0] / norm, self.aversive_pos[1] / norm,
-            float(self.context_cue)
-        ], dtype=np.float32)
+        ]
+        if self.include_cue:
+            base.append(float(self.context_cue))
+        return np.array(base, dtype=np.float32)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        n_cells = self.grid_size**2
+        n_cells = self.grid_size ** 2
         pos_indices = self.np_random.choice(n_cells, 3, replace=False)
-        def idx_to_pos(idx): return (idx // self.grid_size, idx % self.grid_size)
+
+        def idx_to_pos(idx):
+            return (idx // self.grid_size, idx % self.grid_size)
+
         self.agent_pos = idx_to_pos(pos_indices[0])
         self.goal_pos = idx_to_pos(pos_indices[1])
         self.aversive_pos = idx_to_pos(pos_indices[2])
@@ -61,7 +67,11 @@ class BlobRevaluationEnv(gym.Env):
             self.context_cue = 0
         elif self.mode == "honest_revaluation":
             self.true_benefit = self.np_random.random() < 0.5
-            self.context_cue = int(self.true_benefit) if self.np_random.random() < self.context_reliability else int(not self.true_benefit)
+            self.context_cue = (
+                int(self.true_benefit)
+                if self.np_random.random() < self.context_reliability
+                else int(not self.true_benefit)
+            )
         elif self.mode == "fake_revaluation":
             self.true_benefit = False
             self.context_cue = 1 if self.np_random.random() < self.context_reliability else 0
@@ -87,7 +97,7 @@ class BlobRevaluationEnv(gym.Env):
             if self.appraisal_model is not None:
                 input_tensor = torch.tensor([[float(self.context_cue)]], dtype=torch.float32)
                 with torch.no_grad():
-                    appraisal_bonus = self.appraisal_model(input_tensor).item()
+                    appraisal_bonus = float(self.appraisal_model(input_tensor).item())
             reward += raw_reward + appraisal_bonus
             self.visited_aversive = True
 
