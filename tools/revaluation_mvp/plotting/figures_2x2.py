@@ -22,16 +22,16 @@ def make_2x2_figure():
         sub["cell"] = sub["train_type"] + " -> " + sub["eval_type"]
         sub = sub.sort_values(["train_type", "eval_type"])
         x = np.arange(len(sub))
-        means = sub["mean_approach_rate"].to_numpy()
-        lower = means - sub["ci95_approach_low"].to_numpy()
-        upper = sub["ci95_approach_high"].to_numpy() - means
+        means = sub["mean_return"].to_numpy()
+        lower = means - sub["ci95_return_low"].to_numpy()
+        upper = sub["ci95_return_high"].to_numpy() - means
 
         axes[i].bar(x, means)
         axes[i].errorbar(x, means, yerr=[lower, upper], fmt="none", color="black", capsize=4)
         axes[i].set_xticks(x)
         axes[i].set_xticklabels(sub["cell"], rotation=20, ha="right")
         axes[i].set_title(f"2x2 mechanism -- {mode}")
-        axes[i].set_ylabel("Approach rate")
+        axes[i].set_ylabel("Mean return")
 
     fig.tight_layout()
     fig.savefig(FIGURES / "figure_2x2_mechanism.png", dpi=300)

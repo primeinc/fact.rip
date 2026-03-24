@@ -3,7 +3,12 @@ Full experiment runner -- one command entrypoint.
 
 Logs to both console and artifacts/experiment.log with timestamps.
 Progress is tracked in artifacts/progress.json for observability.
+
+Usage:
+    uv run python run_experiment.py                        # uses configs/base.yaml
+    uv run python run_experiment.py --config configs/debug.yaml
 """
+import argparse
 import json
 import logging
 import sys
@@ -110,15 +115,27 @@ class ProgressTracker:
         self._write()
 
 
-def load_config():
-    with open(CONFIGS / "base.yaml", "r", encoding="utf-8") as f:
+def load_config(path=None):
+    cfg_path = path if path else CONFIGS / "base.yaml"
+    with open(cfg_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the full revaluation MVP experiment.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to a YAML config file (default: configs/base.yaml)",
+    )
+    args = parser.parse_args()
+
     ensure_dirs()
     log = setup_logging()
-    cfg = load_config()
+    cfg = load_config(args.config)
+
+    env_cfg = cfg.get("environment", {})
+    device = cfg["training"].get("device", "cpu")
 
     seeds = cfg["seeds"]
     rels = cfg["reliabilities"]
@@ -156,7 +173,12 @@ def main():
             log.info("TRAIN  %s", label)
             progress.start_train(label)
             t0 = time.time()
-            train_raw(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
+            train_raw(
+                seed, rel,
+                total_timesteps=cfg["training"]["total_timesteps"],
+                device=device,
+                env_cfg=env_cfg,
+            )
             log.info("TRAIN  %s  done in %s", label, _fmt_duration(time.time() - t0))
             progress.finish_train()
 
@@ -165,7 +187,12 @@ def main():
             log.info("TRAIN  %s", label)
             progress.start_train(label)
             t0 = time.time()
-            train_app(seed, rel, total_timesteps=cfg["training"]["total_timesteps"])
+            train_app(
+                seed, rel,
+                total_timesteps=cfg["training"]["total_timesteps"],
+                device=device,
+                env_cfg=env_cfg,
+            )
             log.info("TRAIN  %s  done in %s", label, _fmt_duration(time.time() - t0))
             progress.finish_train()
 
@@ -187,6 +214,8 @@ def main():
                             reliability=rel,
                             seed=seed,
                             num_episodes=cfg["evaluation"]["num_episodes"],
+                            device=device,
+                            env_cfg=env_cfg,
                         )
                         progress.finish_eval()
 

@@ -16,7 +16,13 @@ def model_path(seed: int, reliability: float) -> Path:
     return MODELS / f"ppo_with_appraisal_rel_{reliability}_seed{seed}.zip"
 
 
-def train(seed: int, reliability: float, total_timesteps: int = 200000):
+def train(
+    seed: int,
+    reliability: float,
+    total_timesteps: int = 200000,
+    device: str = "cpu",
+    env_cfg: dict | None = None,
+):
     out = model_path(seed, reliability)
     if out.exists():
         log.info("Skipping existing WITH-APPRAISAL (rel=%s, seed=%d)", reliability, seed)
@@ -24,14 +30,16 @@ def train(seed: int, reliability: float, total_timesteps: int = 200000):
 
     set_global_seed(seed)
     appraisal_net = load_appraisal_model()
+    env_kwargs = env_cfg or {}
     env = BlobRevaluationEnv(
         mode="honest_revaluation",
         context_reliability=reliability,
         appraisal_model=appraisal_net,
         include_cue=True,
+        **env_kwargs,
     )
     log.info("Training WITH-APPRAISAL | rel=%s seed=%d", reliability, seed)
-    model = PPO("MlpPolicy", env, verbose=0, seed=seed, device="cpu")
+    model = PPO("MlpPolicy", env, verbose=0, seed=seed, device=device)
     model.learn(total_timesteps=total_timesteps)
     model.save(out.with_suffix(""))
     log.info("Saved %s", out)

@@ -21,6 +21,8 @@ def evaluate_run(
     reliability: float,
     seed: int,
     num_episodes: int = 500,
+    device: str = "cpu",
+    env_cfg: dict | None = None,
 ):
     ensure_dirs()
     rid = run_id(train_type, eval_type, mode, reliability, seed)
@@ -30,13 +32,15 @@ def evaluate_run(
         return None, None
 
     appraisal_net = load_appraisal_model() if eval_type == "appraisal" else None
+    env_kwargs = env_cfg or {}
     env = BlobRevaluationEnv(
         mode=mode,
         context_reliability=reliability,
         appraisal_model=appraisal_net,
         include_cue=True,
+        **env_kwargs,
     )
-    model = PPO.load(model_path, device="cpu")
+    model = PPO.load(model_path, device=device)
 
     rows = []
     for ep in range(num_episodes):

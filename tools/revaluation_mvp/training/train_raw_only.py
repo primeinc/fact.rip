@@ -15,21 +15,29 @@ def model_path(seed: int, reliability: float) -> Path:
     return MODELS / f"ppo_raw_only_rel_{reliability}_seed{seed}.zip"
 
 
-def train(seed: int, reliability: float, total_timesteps: int = 200000):
+def train(
+    seed: int,
+    reliability: float,
+    total_timesteps: int = 200000,
+    device: str = "cpu",
+    env_cfg: dict | None = None,
+):
     out = model_path(seed, reliability)
     if out.exists():
         log.info("Skipping existing RAW-ONLY (rel=%s, seed=%d)", reliability, seed)
         return out
 
     set_global_seed(seed)
+    env_kwargs = env_cfg or {}
     env = BlobRevaluationEnv(
         mode="honest_revaluation",
         context_reliability=reliability,
         appraisal_model=None,
         include_cue=True,
+        **env_kwargs,
     )
     log.info("Training RAW-ONLY | rel=%s seed=%d", reliability, seed)
-    model = PPO("MlpPolicy", env, verbose=0, seed=seed, device="cpu")
+    model = PPO("MlpPolicy", env, verbose=0, seed=seed, device=device)
     model.learn(total_timesteps=total_timesteps)
     model.save(out.with_suffix(""))
     log.info("Saved %s", out)
