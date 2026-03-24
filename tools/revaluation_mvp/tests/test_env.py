@@ -17,6 +17,20 @@ def test_obs_shape_no_cue():
     assert obs.shape == (7,)
 
 
+def test_obs_shape_homeostatic():
+    env = BlobRevaluationEnv(mode="homeostatic")
+    obs, _ = env.reset(seed=0)
+    # 7 base + 1 cue + 1 energy = 9
+    assert obs.shape == (9,)
+
+
+def test_obs_shape_homeostatic_no_cue():
+    env = BlobRevaluationEnv(mode="homeostatic", include_cue=False)
+    obs, _ = env.reset(seed=0)
+    # 7 base + 1 energy = 8
+    assert obs.shape == (8,)
+
+
 def test_obs_contains_visited_aversive_flag():
     env = BlobRevaluationEnv()
     obs, _ = env.reset(seed=0)
@@ -227,5 +241,129 @@ def test_info_dict_keys():
     env.goal_pos = (7, 7)
     _, _, _, _, info = env.step(0)
     expected = {"true_benefit", "context_cue", "visited_aversive", "on_aversive",
-                "raw_reward", "appraisal_bonus"}
+                "raw_reward", "appraisal_bonus", "energy_level", "hazard_dwell_time",
+                "died_of_starvation"}
     assert expected <= set(info.keys())
+
+
+# ==========================================================================
+# HOMEOSTATIC MODE
+# ==========================================================================
+
+def test_homeostatic_reward_always_zero():
+    """Physics engine emits no moral truth."""
+    env = BlobRevaluationEnv(mode="homeostatic")
+    env.reset(seed=0)
+    env.agent_pos = (3, 3)
+    env.goal_pos = (7, 7)
+    env.aversive_pos = (0, 0)
+    _, reward, _, _, _ = env.step(1)  # neutral step
+    assert reward == 0.0
+
+
+def test_homeostatic_energy_drains_per_step():
+    env = BlobRevaluationEnv(mode="homeostatic", step_drain=0.1, max_energy=1.0)
+    env.reset(seed=0)
+    env.agent_pos = (3, 3)
+    env.goal_pos = (7, 7)
+    env.aversive_pos = (0, 0)
+    _, _, _, _, info = env.step(1)
+    assert abs(info["energy_level"] - 0.9) < 1e-6
+
+
+def test_homeostatic_hazard_drains_energy():
+    env = BlobRevaluationEnv(
+        mode="homeostatic", step_drain=0.0, hazard_drain=0.3, max_energy=1.0,
+    )
+    env.reset(seed=0)
+    env.agent_pos = (1, 0)
+    env.aversive_pos = (0, 0)
+    env.goal_pos = (7, 7)
+    _, _, _, _, info = env.step(0)  # up → hazard
+    assert abs(info["energy_level"] - 0.7) < 1e-6
+    assert info["hazard_dwell_time"] == 1
+
+
+def test_homeostatic_hazard_drains_every_step():
+    """Unlike reward-surface mode, hazard drains energy on EVERY visit."""
+    env = BlobRevaluationEnv(
+        mode="homeostatic", step_drain=0.0, hazard_drain=0.2, max_energy=1.0,
+    )
+    env.reset(seed=0)
+    env.agent_pos = (1, 0)
+    env.aversive_pos = (0, 0)
+    env.goal_pos = (7, 7)
+    env.step(0)  # first visit → energy 0.8
+    env.step(1)  # move away
+    _, _, _, _, info = env.step(0)  # second visit → energy 0.6
+    assert abs(info["energy_level"] - 0.6) < 1e-6
+    assert info["hazard_dwell_time"] == 2
+
+
+def test_homeostatic_goal_charges_energy():
+    env = BlobRevaluationEnv(
+        mode="homeostatic", step_drain=0.5, charge_amount=0.8, max_energy=1.0,
+    )
+    env.reset(seed=0)
+    env.agent_pos = (1, 0)
+    env.goal_pos = (0, 0)
+    env.aversive_pos = (7, 7)
+    _, _, terminated, _, info = env.step(0)  # up → goal
+    assert terminated
+    # Energy: 1.0 - 0.5 (drain) + 0.8 (charge) = 1.0 (capped at max)
+    assert abs(info["energy_level"] - 1.0) < 1e-6
+
+
+def test_homeostatic_energy_capped_at_max():
+    env = BlobRevaluationEnv(
+        mode="homeostatic", step_drain=0.0, charge_amount=5.0, max_energy=1.0,
+    )
+    env.reset(seed=0)
+    env.agent_pos = (1, 0)
+    env.goal_pos = (0, 0)
+    env.aversive_pos = (7, 7)
+    _, _, _, _, info = env.step(0)
+    assert info["energy_level"] <= 1.0
+
+
+def test_homeostatic_death_on_zero_energy():
+    env = BlobRevaluationEnv(
+        mode="homeostatic", step_drain=0.0, hazard_drain=1.0, max_energy=1.0,
+    )
+    env.reset(seed=0)
+    env.agent_pos = (1, 0)
+    env.aversive_pos = (0, 0)
+    env.goal_pos = (7, 7)
+    _, _, terminated, _, info = env.step(0)  # drain all energy
+    assert terminated
+    assert info["died_of_starvation"] is True
+    assert info["energy_level"] == 0.0
+
+
+def test_homeostatic_obs_includes_energy():
+    env = BlobRevaluationEnv(mode="homeostatic", max_energy=1.0, step_drain=0.1)
+    env.reset(seed=0)
+    env.agent_pos = (3, 3)
+    env.goal_pos = (7, 7)
+    env.aversive_pos = (0, 0)
+    obs, _, _, _, _ = env.step(1)
+    # Last element should be energy_level
+    assert abs(obs[-1] - 0.9) < 1e-6
+
+
+def test_homeostatic_context_cue_generated():
+    """Homeostatic mode uses honest_revaluation-style context logic."""
+    env = BlobRevaluationEnv(mode="homeostatic", context_reliability=1.0)
+    for seed in range(20):
+        env.reset(seed=seed)
+        assert env.context_cue == int(env.true_benefit)
+
+
+def test_homeostatic_reward_zero_even_at_goal():
+    env = BlobRevaluationEnv(mode="homeostatic", goal_reward=99.0)
+    env.reset(seed=0)
+    env.agent_pos = (1, 0)
+    env.goal_pos = (0, 0)
+    env.aversive_pos = (7, 7)
+    _, reward, _, _, _ = env.step(0)
+    assert reward == 0.0  # goal_reward ignored in homeostatic mode

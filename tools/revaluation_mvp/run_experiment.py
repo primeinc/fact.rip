@@ -1,6 +1,8 @@
 """
 Full experiment runner -- one command entrypoint.
 
+Three-way comparison: RAW-ONLY vs APPRAISAL vs HOMEOSTATIC (EMG).
+
 Logs to both console and artifacts/experiment.log with timestamps.
 Progress is tracked in artifacts/progress.json for observability.
 
@@ -22,12 +24,14 @@ from utils.paths import CONFIGS, ARTIFACTS, ensure_dirs
 from models.appraisal_network import appraisal_model_path, train_appraisal_layer
 from training.train_raw_only import train as train_raw
 from training.train_with_appraisal import train as train_app
+from training.train_homeostatic import train as train_emg
 from evaluation.evaluate import evaluate_run
 from evaluation.aggregate import aggregate_results
 from plotting.figures_main import make_main_figure
 from plotting.figures_2x2 import make_2x2_figure
 from training.train_raw_only import model_path as raw_model_path
 from training.train_with_appraisal import model_path as app_model_path
+from training.train_homeostatic import model_path as emg_model_path
 
 LOG_FILE = ARTIFACTS / "experiment.log"
 PROGRESS_FILE = ARTIFACTS / "progress.json"
@@ -182,8 +186,14 @@ def main():
     seeds = cfg["seeds"]
     rels = cfg["reliabilities"]
     modes = cfg["eval_modes"]
-    total_train = len(rels) * len(seeds) * 2
-    total_eval = len(rels) * len(seeds) * len(modes) * 2 * 2
+    # 3 training perspectives: RAW, APP, EMG
+    total_train = len(rels) * len(seeds) * 3
+    # Eval: modes × (raw + appraisal eval_types) × (raw_only + app + emg train_types)
+    # Plus: homeostatic mode × (standard eval_type) × (emg train_type)
+    total_eval_classic = len(rels) * len(seeds) * len(modes) * 2 * 2  # RAW/APP
+    total_eval_emg = len(rels) * len(seeds) * len(modes)  # EMG on classic modes
+    total_eval_homeostatic = len(rels) * len(seeds) * 3  # all 3 agents on homeostatic
+    total_eval = total_eval_classic + total_eval_emg + total_eval_homeostatic
     progress = ProgressTracker(total_train, total_eval)
 
     log.info("Experiment started -- %d train runs, %d eval runs", total_train, total_eval)
@@ -236,7 +246,21 @@ def main():
             log.info("TRAIN  %s  done in %s", label, _fmt_duration(time.time() - t0))
             progress.finish_train()
 
-            # Evaluate
+            # Train HOMEOSTATIC (EMG)
+            label = f"[{pair_idx}/{pair_total}] EMG       {pair_label}"
+            log.info("TRAIN  %s", label)
+            progress.start_train(label)
+            t0 = time.time()
+            train_emg(
+                seed, rel,
+                total_timesteps=cfg["training"]["total_timesteps"],
+                device=device,
+                env_cfg=env_cfg,
+            )
+            log.info("TRAIN  %s  done in %s", label, _fmt_duration(time.time() - t0))
+            progress.finish_train()
+
+            # Evaluate RAW & APP on classic modes (honest/fake revaluation)
             for mode in modes:
                 for eval_type in ["raw", "appraisal"]:
                     for train_type, model_path_fn, train_label in [
@@ -258,6 +282,45 @@ def main():
                             env_cfg=env_cfg,
                         )
                         progress.finish_eval()
+
+                # Evaluate EMG on classic modes (standard eval, no appraisal swap)
+                elabel = f"EMG/standard/{mode} {pair_label}"
+                log.debug("EVAL   %s", elabel)
+                progress.start_eval(elabel)
+                evaluate_run(
+                    model_path=emg_model_path(seed, rel),
+                    train_type="homeostatic",
+                    eval_type="standard",
+                    mode=mode,
+                    reliability=rel,
+                    seed=seed,
+                    num_episodes=cfg["evaluation"]["num_episodes"],
+                    device=device,
+                    env_cfg=env_cfg,
+                )
+                progress.finish_eval()
+
+            # Evaluate all 3 agents on homeostatic mode (survival metrics)
+            for train_type, model_path_fn, train_label in [
+                ("raw_only", raw_model_path, "RAW"),
+                ("with_appraisal", app_model_path, "APP"),
+                ("homeostatic", emg_model_path, "EMG"),
+            ]:
+                elabel = f"{train_label}/standard/homeostatic {pair_label}"
+                log.debug("EVAL   %s", elabel)
+                progress.start_eval(elabel)
+                evaluate_run(
+                    model_path=model_path_fn(seed, rel),
+                    train_type=train_type,
+                    eval_type="standard",
+                    mode="homeostatic",
+                    reliability=rel,
+                    seed=seed,
+                    num_episodes=cfg["evaluation"]["num_episodes"],
+                    device=device,
+                    env_cfg=env_cfg,
+                )
+                progress.finish_eval()
 
             log.info("Completed %s -- evals done: %d/%d",
                      pair_label, progress.eval_done, total_eval)

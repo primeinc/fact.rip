@@ -44,6 +44,8 @@ def evaluate_run(
     )
     model = PPO.load(model_path, device=device)
 
+    is_homeostatic = mode == "homeostatic"
+
     rows = []
     for ep in range(num_episodes):
         obs, _ = env.reset(seed=seed + 10_000 + ep)
@@ -65,7 +67,7 @@ def evaluate_run(
                 entered = True
                 total_appraisal += info.get("appraisal_bonus", 0.0)
 
-        rows.append({
+        row = {
             "episode": ep,
             "return": episode_return,
             "approached": int(entered),
@@ -77,11 +79,15 @@ def evaluate_run(
             "mode": mode,
             "reliability": reliability,
             "seed": seed,
-        })
+            # Physiological metrics (always present, meaningful for homeostatic)
+            "final_energy": float(info.get("energy_level", 0.0)),
+            "hazard_dwell": int(info.get("hazard_dwell_time", 0)),
+            "died": int(info.get("died_of_starvation", False)),
+        }
+        rows.append(row)
 
     df = pd.DataFrame(rows)
     episode_path = RUNS / f"{rid}__episodes.csv"
-
     write_csv(episode_path, df)
 
     # Cue-conditional approach rates
@@ -101,6 +107,10 @@ def evaluate_run(
         "mean_dwell": float(df["dwell_steps"].mean()),
         "mean_return": float(df["return"].mean()),
         "mean_appraisal_sum": float(df["appraisal_sum"].mean()),
+        # Physiological summary metrics
+        "mean_final_energy": float(df["final_energy"].mean()),
+        "mean_hazard_dwell": float(df["hazard_dwell"].mean()),
+        "starvation_rate": float(df["died"].mean()),
         "episode_csv": str(episode_path),
     }
     write_json(summary_path, summary)

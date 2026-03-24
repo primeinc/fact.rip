@@ -6,6 +6,20 @@ import torch.nn as nn
 
 
 class BlobRevaluationEnv(gym.Env):
+    """
+    Gridworld with two regimes:
+
+    **Reward-surface** (baseline / honest_revaluation / fake_revaluation):
+        Traditional MDP.  Aversive tile cost + appraisal bonus on *first visit
+        only* (oracle fix), goal reward, delayed context reward.
+
+    **Physics-only** (homeostatic):
+        Returns reward ≡ 0.  Only updates internal energy: step drain, hazard
+        drain every step on the aversive tile, charge at goal.  The wrapper
+        (HomeostaticIntrinsicDriveWrapper) is responsible for generating
+        intrinsic valence from the physiological state.
+    """
+
     metadata = {"render_modes": []}
 
     def __init__(
@@ -21,6 +35,11 @@ class BlobRevaluationEnv(gym.Env):
         appraisal_model: nn.Module | None = None,
         include_cue: bool = True,
         render_mode: str | None = None,
+        # Homeostatic physics parameters
+        max_energy: float = 1.0,
+        step_drain: float = 0.02,
+        hazard_drain: float = 0.25,
+        charge_amount: float = 1.0,
     ):
         super().__init__()
         self.render_mode = render_mode
@@ -35,21 +54,45 @@ class BlobRevaluationEnv(gym.Env):
         self.appraisal_model = appraisal_model
         self.include_cue = include_cue
 
+        # Homeostatic internal state params
+        self.max_energy = max_energy
+        self.step_drain = step_drain
+        self.hazard_drain = hazard_drain
+        self.charge_amount = charge_amount
+
         self.action_space = spaces.Discrete(4)
-        obs_dim = 8 if include_cue else 7  # +1 for visited_aversive flag
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
+
+        # Obs layout: [agent_xy, goal_xy, aversive_xy, visited_aversive, (cue), (energy)]
+        # Base = 7 (6 positions + visited_aversive flag)
+        obs_dim = 7
+        if include_cue:
+            obs_dim += 1
+        if mode == "homeostatic":
+            obs_dim += 1  # energy_level
+        self.observation_space = spaces.Box(
+            low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32,
+        )
 
     def _get_obs(self) -> np.ndarray:
         norm = float(self.grid_size - 1) if self.grid_size > 1 else 1.0
         base = [
-            self.agent_pos[0] / norm, self.agent_pos[1] / norm,
-            self.goal_pos[0] / norm, self.goal_pos[1] / norm,
-            self.aversive_pos[0] / norm, self.aversive_pos[1] / norm,
+            self.agent_pos[0] / norm,
+            self.agent_pos[1] / norm,
+            self.goal_pos[0] / norm,
+            self.goal_pos[1] / norm,
+            self.aversive_pos[0] / norm,
+            self.aversive_pos[1] / norm,
             float(self.visited_aversive),
         ]
         if self.include_cue:
             base.append(float(self.context_cue))
+        if self.mode == "homeostatic":
+            base.append(float(self.energy_level))
         return np.array(base, dtype=np.float32)
+
+    # ------------------------------------------------------------------
+    # Reset
+    # ------------------------------------------------------------------
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -64,11 +107,13 @@ class BlobRevaluationEnv(gym.Env):
         self.aversive_pos = idx_to_pos(pos_indices[2])
         self.visited_aversive = False
         self.current_step = 0
+        self.energy_level = self.max_energy
+        self.hazard_dwell_time = 0
 
         if self.mode == "baseline":
             self.true_benefit = False
             self.context_cue = 0
-        elif self.mode == "honest_revaluation":
+        elif self.mode in ("honest_revaluation", "homeostatic"):
             self.true_benefit = self.np_random.random() < 0.5
             self.context_cue = (
                 int(self.true_benefit)
@@ -77,11 +122,17 @@ class BlobRevaluationEnv(gym.Env):
             )
         elif self.mode == "fake_revaluation":
             self.true_benefit = False
-            self.context_cue = 1 if self.np_random.random() < self.context_reliability else 0
+            self.context_cue = (
+                1 if self.np_random.random() < self.context_reliability else 0
+            )
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
 
         return self._get_obs(), {}
+
+    # ------------------------------------------------------------------
+    # Step
+    # ------------------------------------------------------------------
 
     def step(self, action):
         deltas = [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -91,26 +142,62 @@ class BlobRevaluationEnv(gym.Env):
         if 0 <= new_x < self.grid_size and 0 <= new_y < self.grid_size:
             self.agent_pos = (new_x, new_y)
 
-        reward = self.step_penalty
+        reward = 0.0
         raw_reward = 0.0
         appraisal_bonus = 0.0
         on_aversive = self.agent_pos == self.aversive_pos
-
-        if on_aversive and not self.visited_aversive:
-            raw_reward = self.raw_local_cost
-            if self.appraisal_model is not None:
-                input_tensor = torch.tensor([[float(self.context_cue)]], dtype=torch.float32)
-                with torch.no_grad():
-                    appraisal_bonus = float(self.appraisal_model(input_tensor).item())
-            reward += raw_reward + appraisal_bonus
-            self.visited_aversive = True
-
         terminated = False
-        if self.agent_pos == self.goal_pos:
-            reward += self.goal_reward
-            if self.visited_aversive and self.true_benefit:
-                reward += self.delayed_context_reward
-            terminated = True
+        died_of_starvation = False
+
+        if self.mode == "homeostatic":
+            # ----------------------------------------------------------
+            # PHYSICS-ONLY regime: reward ≡ 0, update energy
+            # ----------------------------------------------------------
+            self.energy_level -= self.step_drain
+
+            if on_aversive:
+                self.energy_level -= self.hazard_drain
+                self.hazard_dwell_time += 1
+                self.visited_aversive = True
+
+            if self.agent_pos == self.goal_pos:
+                self.energy_level = min(
+                    self.max_energy, self.energy_level + self.charge_amount,
+                )
+                terminated = True
+
+            if self.energy_level <= 0:
+                self.energy_level = 0.0
+                died_of_starvation = True
+                terminated = True
+
+            reward = 0.0  # physics engine emits no moral truth
+
+        else:
+            # ----------------------------------------------------------
+            # REWARD-SURFACE regime (RAW / APP)
+            # ----------------------------------------------------------
+            reward = self.step_penalty
+
+            # First-visit-only guard (oracle fix: prevents tile-camping)
+            if on_aversive and not self.visited_aversive:
+                raw_reward = self.raw_local_cost
+                if self.appraisal_model is not None:
+                    inp = torch.tensor(
+                        [[float(self.context_cue)]], dtype=torch.float32,
+                    )
+                    with torch.no_grad():
+                        appraisal_bonus = float(
+                            self.appraisal_model(inp).item()
+                        )
+                reward += raw_reward + appraisal_bonus
+                self.visited_aversive = True
+
+            if self.agent_pos == self.goal_pos:
+                reward += self.goal_reward
+                if self.visited_aversive and self.true_benefit:
+                    reward += self.delayed_context_reward
+                terminated = True
 
         self.current_step += 1
         truncated = self.current_step >= self.max_steps
@@ -123,5 +210,8 @@ class BlobRevaluationEnv(gym.Env):
             "on_aversive": on_aversive,
             "raw_reward": raw_reward,
             "appraisal_bonus": appraisal_bonus,
+            "energy_level": self.energy_level,
+            "hazard_dwell_time": self.hazard_dwell_time,
+            "died_of_starvation": died_of_starvation,
         }
         return obs, reward, terminated, truncated, info
