@@ -1,11 +1,13 @@
 import logging
+
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from utils.paths import TABLES, FIGURES, ensure_dirs
+from utils.paths import FIGURES, TABLES, ensure_dirs
 
 log = logging.getLogger(__name__)
 

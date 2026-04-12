@@ -1,7 +1,6 @@
-import numpy as np
 import torch
-from envs.blob_revaluation_env import BlobRevaluationEnv
 
+from envs.blob_revaluation_env import BlobRevaluationEnv
 
 # ---------- Observation shape ----------
 
@@ -150,7 +149,7 @@ def test_truncation_at_max_steps():
     env.aversive_pos = (7, 6)
     env.agent_pos = (0, 0)
 
-    for i in range(2):
+    for _i in range(2):
         _, _, _, truncated, _ = env.step(1)
         assert not truncated
     _, _, _, truncated, _ = env.step(1)
@@ -185,7 +184,7 @@ def test_invalid_mode_raises():
     env = BlobRevaluationEnv(mode="invalid")
     try:
         env.reset(seed=0)
-        assert False, "Should have raised ValueError"
+        raise AssertionError("Should have raised ValueError")
     except ValueError:
         pass
 

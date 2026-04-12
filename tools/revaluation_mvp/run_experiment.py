@@ -18,20 +18,21 @@ import logging
 import shutil
 import sys
 import time
+
 import yaml
 
-from utils.paths import CONFIGS, ARTIFACTS, ensure_dirs
-from models.appraisal_network import appraisal_model_path, train_appraisal_layer
-from training.train_raw_only import train as train_raw
-from training.train_with_appraisal import train as train_app
-from training.train_homeostatic import train as train_emg
-from evaluation.evaluate import evaluate_run
 from evaluation.aggregate import aggregate_results
-from plotting.figures_main import make_main_figure
+from evaluation.evaluate import evaluate_run
+from models.appraisal_network import appraisal_model_path, train_appraisal_layer
 from plotting.figures_2x2 import make_2x2_figure
-from training.train_raw_only import model_path as raw_model_path
-from training.train_with_appraisal import model_path as app_model_path
+from plotting.figures_main import make_main_figure
 from training.train_homeostatic import model_path as emg_model_path
+from training.train_homeostatic import train as train_emg
+from training.train_raw_only import model_path as raw_model_path
+from training.train_raw_only import train as train_raw
+from training.train_with_appraisal import model_path as app_model_path
+from training.train_with_appraisal import train as train_app
+from utils.paths import ARTIFACTS, CONFIGS, ensure_dirs
 
 LOG_FILE = ARTIFACTS / "experiment.log"
 PROGRESS_FILE = ARTIFACTS / "progress.json"
@@ -156,7 +157,7 @@ class ProgressTracker:
 
 def load_config(path=None):
     cfg_path = path if path else CONFIGS / "base.yaml"
-    with open(cfg_path, "r", encoding="utf-8") as f:
+    with open(cfg_path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 

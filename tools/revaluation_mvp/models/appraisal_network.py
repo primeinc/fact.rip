@@ -1,8 +1,9 @@
 import logging
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from pathlib import Path
 
 from utils.paths import MODELS, ensure_dirs
 
@@ -43,7 +44,7 @@ def train_appraisal_layer(
         dtype=torch.float32,
     )
 
-    for epoch in range(200):
+    for _epoch in range(200):
         optimizer.zero_grad()
         pred = model(X)
         loss = loss_fn(pred, y)

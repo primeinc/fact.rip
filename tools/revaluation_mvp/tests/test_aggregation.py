@@ -1,6 +1,4 @@
 import json
-import pytest
-import pandas as pd
 
 from evaluation.aggregate import aggregate_results
 
@@ -25,8 +23,8 @@ def _write_summary(path, *, train_type, eval_type, mode, reliability, seed, appr
 
 
 def test_aggregate_results_produces_expected_schema(tmp_path, monkeypatch):
-    import utils.paths as p
     import evaluation.aggregate as agg
+    import utils.paths as p
 
     runs_tmp = tmp_path / "runs"
     tables_tmp = tmp_path / "tables"

@@ -1,7 +1,7 @@
 import logging
-import pandas as pd
-import numpy as np
 from pathlib import Path
+
+import pandas as pd
 from stable_baselines3 import PPO
 
 from envs.blob_revaluation_env import BlobRevaluationEnv
@@ -100,8 +100,12 @@ def evaluate_run(
         "reliability": reliability,
         "seed": seed,
         "mean_approach_rate": float(df["approached"].mean()),
-        "mean_approach_rate_cue1": float(cue1["approached"].mean()) if len(cue1) > 0 else float("nan"),
-        "mean_approach_rate_cue0": float(cue0["approached"].mean()) if len(cue0) > 0 else float("nan"),
+        "mean_approach_rate_cue1": (
+            float(cue1["approached"].mean()) if len(cue1) > 0 else float("nan")
+        ),
+        "mean_approach_rate_cue0": (
+            float(cue0["approached"].mean()) if len(cue0) > 0 else float("nan")
+        ),
         "mean_dwell": float(df["dwell_steps"].mean()),
         "mean_return": float(df["return"].mean()),
         "mean_appraisal_sum": float(df["appraisal_sum"].mean()),

@@ -1,7 +1,7 @@
 import logging
-import pandas as pd
+
 import numpy as np
-from pathlib import Path
+import pandas as pd
 from scipy.stats import bootstrap
 
 from utils.io import read_json, write_csv
@@ -21,7 +21,8 @@ def _ci95(series: pd.Series):
         confidence_level=0.95,
         random_state=_RNG,
     )
-    return float(series.mean()), float(res.confidence_interval.low), float(res.confidence_interval.high)
+    ci = res.confidence_interval
+    return float(series.mean()), float(ci.low), float(ci.high)
 
 
 def aggregate_results():

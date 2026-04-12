@@ -1,8 +1,8 @@
 import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import torch
 import torch.nn as nn
+from gymnasium import spaces
 
 
 class BlobRevaluationEnv(gym.Env):
