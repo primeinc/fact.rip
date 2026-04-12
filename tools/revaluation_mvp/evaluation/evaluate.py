@@ -44,8 +44,6 @@ def evaluate_run(
     )
     model = PPO.load(model_path, device=device)
 
-    is_homeostatic = mode == "homeostatic"
-
     rows = []
     for ep in range(num_episodes):
         obs, _ = env.reset(seed=seed + 10_000 + ep)

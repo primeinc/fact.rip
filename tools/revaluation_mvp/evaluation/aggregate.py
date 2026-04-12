@@ -1,4 +1,3 @@
-import glob
 import logging
 import pandas as pd
 import numpy as np
@@ -27,12 +26,12 @@ def _ci95(series: pd.Series):
 
 def aggregate_results():
     ensure_dirs()
-    summary_files = sorted(glob.glob(str(RUNS / "*__summary.json")))
+    summary_files = sorted(RUNS.glob("*__summary.json"))
     if not summary_files:
         log.warning("No run summaries found.")
         return None
 
-    summaries = [read_json(Path(p)) for p in summary_files]
+    summaries = [read_json(p) for p in summary_files]
     seed_df = pd.DataFrame(summaries)
     write_csv(TABLES / "seed_level_summary.csv", seed_df)
 

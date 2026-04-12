@@ -63,7 +63,10 @@ def train_appraisal_layer(
 
 def load_appraisal_model(reliability: float) -> AppraisalNetwork:
     model = AppraisalNetwork()
-    model.load_state_dict(torch.load(appraisal_model_path(reliability), weights_only=True))
+    path = appraisal_model_path(reliability)
+    model.load_state_dict(
+        torch.load(path, weights_only=True, map_location="cpu")
+    )
     model.eval()
     return model
 

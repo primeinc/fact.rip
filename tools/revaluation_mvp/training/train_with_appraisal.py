@@ -31,7 +31,13 @@ def train(
         return out
 
     set_global_seed(seed)
-    appraisal_net = load_appraisal_model(reliability)
+    try:
+        appraisal_net = load_appraisal_model(reliability)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"Appraisal model weights not found for reliability={reliability}. "
+            "Run 'run_experiment.py' or 'train_appraisal_layer' first."
+        ) from exc
     env_kwargs = {k: v for k, v in (env_cfg or {}).items() if k not in _ENV_EXPLICIT_KEYS}
     env = BlobRevaluationEnv(
         mode="honest_revaluation",

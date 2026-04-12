@@ -367,3 +367,20 @@ def test_homeostatic_reward_zero_even_at_goal():
     env.aversive_pos = (7, 7)
     _, reward, _, _, _ = env.step(0)
     assert reward == 0.0  # goal_reward ignored in homeostatic mode
+
+
+def test_homeostatic_obs_space_bounds_with_high_max_energy():
+    """Observation space must accommodate max_energy > 1.0."""
+    env = BlobRevaluationEnv(mode="homeostatic", max_energy=5.0)
+    obs, _ = env.reset(seed=0)
+    assert env.observation_space.contains(obs), "Reset obs violates observation_space"
+    obs2, _, _, _, _ = env.step(0)
+    assert env.observation_space.contains(obs2), "Step obs violates observation_space"
+    assert env.observation_space.high[-1] == 5.0
+
+
+def test_obs_space_bounds_default():
+    """Default mode observation values stay within [0, 1]."""
+    env = BlobRevaluationEnv()
+    obs, _ = env.reset(seed=0)
+    assert env.observation_space.contains(obs)

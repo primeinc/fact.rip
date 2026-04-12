@@ -19,8 +19,20 @@ def isolated_runs(tmp_path, monkeypatch):
     import evaluation.evaluate as ev
 
     runs_tmp = tmp_path / "runs"
-    runs_tmp.mkdir()
+    artifacts_tmp = tmp_path / "artifacts"
+    models_tmp = artifacts_tmp / "models"
+    tables_tmp = artifacts_tmp / "tables"
+    figures_tmp = artifacts_tmp / "figures"
+
+    for d in (runs_tmp, artifacts_tmp, models_tmp, tables_tmp, figures_tmp):
+        d.mkdir(parents=True, exist_ok=True)
+
     monkeypatch.setattr(p, "RUNS", runs_tmp)
+    monkeypatch.setattr(p, "ARTIFACTS", artifacts_tmp)
+    monkeypatch.setattr(p, "MODELS", models_tmp)
+    monkeypatch.setattr(p, "TABLES", tables_tmp)
+    monkeypatch.setattr(p, "FIGURES", figures_tmp)
+
     monkeypatch.setattr(ev, "RUNS", runs_tmp)
 
     # Patch PPO.load so we don't need a real saved model

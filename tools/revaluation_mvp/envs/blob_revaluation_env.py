@@ -69,8 +69,12 @@ class BlobRevaluationEnv(gym.Env):
             obs_dim += 1
         if mode == "homeostatic":
             obs_dim += 1  # energy_level
+        low = np.zeros(obs_dim, dtype=np.float32)
+        high = np.ones(obs_dim, dtype=np.float32)
+        if mode == "homeostatic":
+            high[-1] = float(self.max_energy)
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32,
+            low=low, high=high, dtype=np.float32,
         )
 
     def _get_obs(self) -> np.ndarray:
